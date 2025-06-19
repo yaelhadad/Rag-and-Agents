@@ -306,8 +306,8 @@ class EnhancedDocumentAgent:
         for word in words:
             word_freq[word] = word_freq.get(word, 0) + 1
         
-        # Top 5 keywords
-        keywords = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+        # Top 2 keywords
+        keywords = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:2]
         metadata['keywords'] = [word for word, freq in keywords]
         
         # Text statistics
@@ -347,7 +347,7 @@ class EnhancedDocumentAgent:
         return chunks
 
     def _create_tools(self) -> List[Tool]:
-        """Create enhanced tools for the agent"""
+        """Create essential tools for the agent"""
         return [
             Tool(
                 name="SearchDocuments",
@@ -355,54 +355,37 @@ class EnhancedDocumentAgent:
                 description="Search for relevant information in documents. Use keywords or questions."
             ),
             Tool(
-                name="GetDocumentStructure",
-                func=self._get_document_structure,
-                description="Get overview of document structure (clauses, sections, etc.)"
+                name="GetContextInfo",
+                func=self._get_context_info,
+                description="Get information about previously mentioned entities, roles, or concepts"
             ),
             Tool(
-                name="FindByClause",
-                func=self._find_by_clause,
-                description="Find specific clause by number (e.g., 'clause 5' or '5')"
+                name="CompareEntities",
+                func=self._compare_entities,
+                description="Compare different entities, roles, or concepts mentioned in the conversation"
             ),
             Tool(
-                name="SearchByKeywords",
-                func=self._search_by_keywords,
-                description="Search documents using specific keywords with metadata filtering"
-            ),
-            Tool(
-                name="GetSimilarContent",
-                func=self._get_similar_content,
-                description="Find content similar to a given text or concept"
+                name="SearchUserCapabilities",
+                func=self._search_user_capabilities,
+                description="Search for specific capabilities of a user group"
             )
         ]
 
-    def _search_documents(self, query: str, k: int = 5) -> str:
-        """Enhanced document search with metadata utilization"""
+    def _search_documents(self, query: str, k: int = 2) -> str:
+        """Search for relevant information in documents"""
         try:
-            # Perform similarity search with scores
+            # Perform similarity search
             results = self.vectorstore.similarity_search_with_score(query, k=k)
             
             if not results:
                 return "No relevant documents found."
             
-            # Format results with metadata
+            # Format results
             formatted_results = []
             for i, (doc, score) in enumerate(results, 1):
-                meta = doc.metadata
-                
-                # Create rich result description
-                result_info = f"Result {i} (Relevance: {1-score:.2f}):\n"
-                result_info += f"Type: {meta.get('type', 'unknown')}\n"
-                
-                if meta.get('display_title'):
-                    result_info += f"Title: {meta['display_title']}\n"
-                
-                if meta.get('keywords'):
-                    result_info += f"Keywords: {', '.join(meta['keywords'])}\n"
-                
+                result_info = f"Result {i}:\n"
                 result_info += f"Content: {doc.page_content}\n"
-                result_info += "-" * 50 + "\n"
-                
+                result_info += "-" * 40 + "\n"
                 formatted_results.append(result_info)
             
             return "\n".join(formatted_results)
@@ -410,138 +393,122 @@ class EnhancedDocumentAgent:
         except Exception as e:
             return f"Error searching documents: {str(e)}"
 
-    def _get_document_structure(self, _: str = "") -> str:
-        """Get document structure overview"""
+    def _get_context_info(self, context_query: str) -> str:
+        """Get information about previously mentioned entities or concepts"""
         try:
-            with open(self.metadata_path, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
+            # Search for the context query in the conversation history
+            if hasattr(self.memory, 'chat_memory') and self.memory.chat_memory.messages:
+                # Look for mentions in recent conversation
+                recent_context = []
+                for message in self.memory.chat_memory.messages[-6:]:  # Last 6 messages
+                    if context_query.lower() in message.content.lower():
+                        recent_context.append(message.content)
+                
+                if recent_context:
+                    # Extract specific user groups from the context
+                    context_text = recent_context[-1]  # Get the most recent context
+                    
+                    # Look for specific user groups mentioned
+                    user_groups = []
+                    if 'customers' in context_text.lower():
+                        user_groups.append('customers')
+                    if 'staff' in context_text.lower():
+                        user_groups.append('staff')
+                    if 'admins' in context_text.lower() or 'admin' in context_text.lower():
+                        user_groups.append('admins')
+                    
+                    if user_groups:
+                        context_info = f"Previously mentioned users: {', '.join(user_groups)}\n"
+                        context_info += f"Context: {context_text[:200]}...\n"
+                        return context_info
+                    else:
+                        return f"Context found: {context_text[:200]}..."
             
-            structure = metadata['document_structure']
-            info = metadata['index_info']
-            
-            result = f"Document Structure Overview:\n"
-            result += f"Source: {info['source_file']}\n"
-            result += f"Total Documents: {info['total_documents']}\n"
-            result += f"Created: {info['created_at']}\n\n"
-            
-            result += "Content Breakdown:\n"
-            for content_type, count in structure.items():
-                if count > 0:
-                    result += f"- {content_type.title()}: {count}\n"
-            
-            return result
+            # Fallback to document search
+            return self._search_documents(context_query)
             
         except Exception as e:
-            return f"Error getting document structure: {str(e)}"
+            return f"Error getting context info: {str(e)}"
 
-    def _find_by_clause(self, clause_identifier: str) -> str:
-        """Find specific clause by number"""
+    def _search_user_capabilities(self, user_group: str, capability: str) -> str:
+        """Search for specific capabilities of a user group"""
         try:
-            # Extract number from identifier
-            match = re.search(r'\d+', clause_identifier)
-            if not match:
-                return "Invalid clause identifier. Please provide a clause number."
-            
-            clause_num = int(match.group())
-            
-            # Search for documents with matching clause number
-            matching_docs = [
-                doc for doc in self.documents 
-                if doc.metadata.get('clause_number') == clause_num
-            ]
-            
-            if not matching_docs:
-                return f"Clause {clause_num} not found."
-            
-            # Format results
-            results = []
-            for doc in matching_docs:
-                result = f"Clause {clause_num}:\n"
-                result += f"{doc.page_content}\n"
-                if len(matching_docs) > 1:
-                    result += f"(Part {doc.metadata.get('chunk_index', 1)} of {doc.metadata.get('total_chunks', 1)})\n"
-                results.append(result)
-            
-            return "\n".join(results)
-            
-        except Exception as e:
-            return f"Error finding clause: {str(e)}"
-
-    def _search_by_keywords(self, keywords: str) -> str:
-        """Search using keywords with metadata filtering"""
-        try:
-            keyword_list = [kw.strip().lower() for kw in keywords.split(',')]
-            
-            # Find documents containing keywords in their metadata
-            matching_docs = []
-            for doc in self.documents:
-                doc_keywords = [kw.lower() for kw in doc.metadata.get('keywords', [])]
-                if any(kw in doc_keywords for kw in keyword_list):
-                    matching_docs.append(doc)
-            
-            if not matching_docs:
-                # Fallback to content search
-                return self._search_documents(keywords)
-            
-            # Format results
-            results = []
-            for i, doc in enumerate(matching_docs[:5], 1):  # Limit to 5 results
-                meta = doc.metadata
-                result = f"Result {i}:\n"
-                result += f"Type: {meta.get('type', 'unknown')}\n"
-                result += f"Keywords: {', '.join(meta.get('keywords', []))}\n"
-                result += f"Content: {doc.page_content}\n"
-                result += "-" * 50 + "\n"
-                results.append(result)
-            
-            return "\n".join(results)
-            
-        except Exception as e:
-            return f"Error searching by keywords: {str(e)}"
-
-    def _get_similar_content(self, text: str, k: int = 3) -> str:
-        """Find content similar to given text"""
-        try:
-            # Use the text directly for similarity search
-            results = self.vectorstore.similarity_search_with_score(text, k=k)
+            # Create focused search query
+            search_query = f"{user_group} {capability}"
+            results = self.vectorstore.similarity_search_with_score(search_query, k=2)
             
             if not results:
-                return "No similar content found."
+                return f"No information found about {user_group} and {capability}."
             
+            # Format results
             formatted_results = []
             for i, (doc, score) in enumerate(results, 1):
-                similarity = 1 - score
-                result = f"Similar Content {i} (Similarity: {similarity:.2f}):\n"
-                result += f"Type: {doc.metadata.get('type', 'unknown')}\n"
-                result += f"{doc.page_content}\n"
-                result += "-" * 40 + "\n"
-                formatted_results.append(result)
+                result_info = f"Result {i}:\n"
+                result_info += f"Content: {doc.page_content}\n"
+                result_info += "-" * 40 + "\n"
+                formatted_results.append(result_info)
             
             return "\n".join(formatted_results)
             
         except Exception as e:
-            return f"Error finding similar content: {str(e)}"
+            return f"Error searching for user capabilities: {str(e)}"
+
+    def _compare_entities(self, comparison_query: str) -> str:
+        """Compare different entities mentioned in the conversation"""
+        try:
+            # Extract entities from the comparison query
+            entities = comparison_query.split(' and ')
+            if len(entities) < 2:
+                return "Please provide at least two entities to compare (e.g., 'customers and admins')"
+            
+            # Search for information about each entity
+            results = []
+            for entity in entities:
+                entity = entity.strip()
+                entity_info = self._search_documents(entity)
+                results.append(f"Information about '{entity}':\n{entity_info}\n")
+            
+            # Return comparison information
+            return "\n".join(results)
+            
+        except Exception as e:
+            return f"Error comparing entities: {str(e)}"
 
     def _create_agent(self):
-        """Create enhanced agent with better prompt"""
-        system_message = SystemMessage(content=f"""You are {self.agent_name}, an advanced document analysis assistant.
+        """Create simplified agent with context memory support"""
+        system_message = SystemMessage(content=f"""You are {self.agent_name}, a document analysis assistant with context memory.
 
-You have access to enhanced tools that can:
-1. Search documents with relevance scoring
-2. Find specific clauses by number
-3. Search by keywords using metadata
-4. Get document structure overview
-5. Find similar content
+You have access to essential tools:
+1. SearchDocuments - Search for relevant information in documents
+2. GetContextInfo - Get information about previously mentioned entities
+3. CompareEntities - Compare different entities or concepts
+4. SearchUserCapabilities - Search for specific capabilities of a user group
 
-Always use the most appropriate tool for each query. When searching:
+CONTEXT MEMORY CAPABILITIES:
+- Always consider the conversation history when answering questions
+- When a question references "mentioned earlier" or "previously mentioned", use the GetContextInfo tool
+- Maintain context about entities, roles, and concepts mentioned in the conversation
+
+CRITICAL CONTEXT RULES:
+- When asked "Among the users mentioned earlier", ONLY consider users from the previous answer
+- If the previous answer mentioned "customers", then "among the users mentioned earlier" refers ONLY to customers
+- Do NOT include other user groups (admins, staff) unless they were specifically mentioned in the previous context
+- Focus your search and answer ONLY on the user groups that were actually mentioned earlier
+
+ANSWER GUIDELINES:
+- Provide focused, specific answers that directly address the question
+- If asked about a specific user group, focus only on that group
+- Be precise about permissions and capabilities for each user role
+- When asked about "who can do X", only mention users who actually have that specific capability
+- When asked "among the users mentioned earlier", restrict your answer to only those users
+
+Use the most appropriate tool for each query:
 - Use SearchDocuments for general queries
-- Use FindByClause for specific clause requests
-- Use SearchByKeywords when user mentions specific terms
-- Use GetDocumentStructure for overview questions
-- Use GetSimilarContent to find related information
+- Use GetContextInfo when asked about previously mentioned entities
+- Use CompareEntities when asked to compare different things
+- Use SearchUserCapabilities when asked about specific user group capabilities
 
-Provide clear, accurate responses with relevant context from the documents.
-If information is not found, suggest alternative search approaches.""")
+Provide clear, accurate responses with relevant context from the documents and conversation history.""")
         
         prompt = ChatPromptTemplate.from_messages([
             system_message,
@@ -574,37 +541,36 @@ If information is not found, suggest alternative search approaches.""")
             return {"error": f"Could not load metadata: {str(e)}"}
 
 def main():
-    """Example usage"""
+    """Example usage with the two specific questions"""
     try:
         # Get the correct file path
         current_dir = Path(__file__).parent.parent
-        data_file = current_dir / "data" / "report.txt"
+        data_file = current_dir / "data" / "restaurant_ordering_system.txt"
         
         if not data_file.exists():
             print(f"❌ Data file not found: {data_file}")
             print("Please ensure the data file exists or update the path.")
             return
         
-        # Create enhanced agent
-        agent = EnhancedDocumentAgent("LegalAssistant", str(data_file))
+        # Create simplified agent
+        agent = EnhancedDocumentAgent("RestaurantSystemAnalyzer", str(data_file))
         
-        # Get metadata info
-        print("Metadata Info:")
-        print(json.dumps(agent.get_metadata_info(), indent=2))
+        # Test the two specific questions
+        print("\n" + "="*60)
+        print("🧠 Testing Context Memory with Two Questions")
+        print("="*60)
         
-        # Example questions
-        questions = [
-            "What are the main topics covered?",
-            "What is the lease agreement validity period?",
-            "What happens in force majeure cases?"
-        ]
+        # First question - establishes context
+        print("\n1. Who sees the vegan meal promotion image in the system?")
+        answer1 = agent.ask("Who sees the vegan meal promotion image in the system?")
+        print(f"Answer: {answer1}")
         
-        for question in questions:
-            print(f"\n{'='*50}")
-            print(f"Question: {question}")
-            print(f"{'='*50}")
-            answer = agent.ask(question)
-            print(f"Answer: {answer}")
+        # Second question - should reference context from first question
+        print("\n2. Among the users that were answered earlier, who can cancel any reservation in the system?")
+        answer2 = agent.ask("Among the users that were answered earlier, who can cancel any reservation in the system?")
+        print(f"Answer: {answer2}")
+        
+        print("\n✅ Test completed!")
             
     except Exception as e:
         logger.error(f"Error in main: {e}")
