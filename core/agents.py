@@ -29,10 +29,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class EnhancedDocumentAgent:
-    def __init__(self, agent_name: str, filepath: str, index_path: Optional[str] = None):
-        """Initialize enhanced document agent with automatic metadata management"""
+    def __init__(self, agent_name: str, filepaths: list, index_path: Optional[str] = None):
+        """Initialize enhanced document agent with multiple documents"""
         self.agent_name = agent_name
-        self.filepath = Path(filepath)
+        self.filepaths = [Path(fp) for fp in filepaths]
         self.index_path = Path(index_path or f"index_{agent_name.lower()}")
         
         # Create index directory
@@ -56,7 +56,7 @@ class EnhancedDocumentAgent:
             model="text-embedding-ada-002"
         )
         
-        # Load or create index with automatic rebuild if file changed
+        # Load or create index with automatic rebuild if files changed
         self.vectorstore, self.documents = self._load_or_create_index()
         
         # Setup tools
@@ -78,11 +78,12 @@ class EnhancedDocumentAgent:
         )
 
     def _calculate_file_checksum(self) -> str:
-        """Calculate MD5 checksum of the source file"""
+        """Calculate MD5 checksum of all source files"""
         hash_md5 = hashlib.md5()
-        with open(self.filepath, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
+        for filepath in self.filepaths:
+            with open(filepath, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
         return hash_md5.hexdigest()
 
     def _should_rebuild_index(self) -> bool:
@@ -94,6 +95,11 @@ class EnhancedDocumentAgent:
             self.checksum_path.exists()
         ]):
             return True
+            
+        # Check if all files exist
+        for filepath in self.filepaths:
+            if not filepath.exists():
+                return True
             
         # Check file checksum
         current_checksum = self._calculate_file_checksum()
@@ -186,11 +192,34 @@ class EnhancedDocumentAgent:
         for doc in documents:
             all_keys.update(doc.metadata.keys())
         
+        # Create sample documents from each source
+        sample_documents = []
+        sources_seen = set()
+        
+        for doc in documents:
+            source = doc.metadata.get('source', 'unknown')
+            if source not in sources_seen and len(sample_documents) < 6:  # Max 6 samples (3 per source if 2 sources)
+                sample_documents.append({
+                    "content_preview": doc.page_content[:100] + "...",
+                    "metadata": doc.metadata
+                })
+                sources_seen.add(source)
+        
+        # If we have fewer sources than expected, add more samples
+        if len(sample_documents) < 3:
+            for doc in documents:
+                if len(sample_documents) >= 3:
+                    break
+                sample_documents.append({
+                    "content_preview": doc.page_content[:100] + "...",
+                    "metadata": doc.metadata
+                })
+        
         # Create summary
         return {
             "index_info": {
                 "agent_name": self.agent_name,
-                "source_file": str(self.filepath),
+                "source_files": [str(fp) for fp in self.filepaths],
                 "created_at": datetime.now().isoformat(),
                 "total_documents": len(documents),
                 "file_checksum": self._calculate_file_checksum()
@@ -202,52 +231,48 @@ class EnhancedDocumentAgent:
                 "other": len(documents) - clause_count - section_count - paragraph_count
             },
             "metadata_fields": list(all_keys),
-            "sample_documents": [
-                {
-                    "content_preview": doc.page_content[:100] + "...",
-                    "metadata": doc.metadata
-                }
-                for doc in documents[:3]  # First 3 documents as examples
-            ]
+            "sample_documents": sample_documents
         }
 
     def _parse_document_with_metadata(self) -> List[Document]:
-        """Parse document with comprehensive automatic metadata extraction"""
+        """Parse multiple documents with comprehensive automatic metadata extraction"""
         try:
-            with open(self.filepath, 'r', encoding='utf-8') as f:
-                content = f.read()
+            all_documents = []
             
-            documents = []
-            sections = self._split_into_sections(content)
-            
-            for section_idx, section in enumerate(sections, 1):
-                # Extract section metadata
-                metadata = self._extract_section_metadata(section, section_idx)
+            for file_idx, filepath in enumerate(self.filepaths, 1):
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
                 
-                # Split section into smaller chunks if too long
-                chunks = self._split_section_into_chunks(section)
+                sections = self._split_into_sections(content)
                 
-                for chunk_idx, chunk in enumerate(chunks, 1):
-                    chunk_metadata = metadata.copy()
-                    chunk_metadata.update({
-                        'chunk_index': chunk_idx,
-                        'total_chunks': len(chunks),
-                        'chunk_id': f"{section_idx}_{chunk_idx}",
-                        'content_length': len(chunk),
-                        'word_count': len(chunk.split()),
-                        'created_at': datetime.now().isoformat()
-                    })
+                for section_idx, section in enumerate(sections, 1):
+                    # Extract section metadata
+                    metadata = self._extract_section_metadata(section, section_idx, filepath, file_idx)
                     
-                    documents.append(Document(
-                        page_content=chunk,
-                        metadata=chunk_metadata
-                    ))
+                    # Split section into smaller chunks if too long
+                    chunks = self._split_section_into_chunks(section)
+                    
+                    for chunk_idx, chunk in enumerate(chunks, 1):
+                        chunk_metadata = metadata.copy()
+                        chunk_metadata.update({
+                            'chunk_index': chunk_idx,
+                            'total_chunks': len(chunks),
+                            'chunk_id': f"file{file_idx}_section{section_idx}_chunk{chunk_idx}",
+                            'content_length': len(chunk),
+                            'word_count': len(chunk.split()),
+                            'created_at': datetime.now().isoformat()
+                        })
+                        
+                        all_documents.append(Document(
+                            page_content=chunk,
+                            metadata=chunk_metadata
+                        ))
             
-            logger.info(f"Created {len(documents)} documents with enhanced metadata")
-            return documents
+            logger.info(f"Created {len(all_documents)} documents from {len(self.filepaths)} files with enhanced metadata")
+            return all_documents
             
         except Exception as e:
-            logger.error(f"Error parsing document: {e}")
+            logger.error(f"Error parsing documents: {e}")
             raise
 
     def _split_into_sections(self, content: str) -> List[str]:
@@ -269,12 +294,13 @@ class EnhancedDocumentAgent:
         paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
         return paragraphs if paragraphs else [content]
 
-    def _extract_section_metadata(self, section: str, section_idx: int) -> Dict[str, Any]:
+    def _extract_section_metadata(self, section: str, section_idx: int, filepath: Path, file_idx: int) -> Dict[str, Any]:
         """Extract comprehensive metadata from a section"""
         metadata = {
             'section_index': section_idx,
-            'source': str(self.filepath.name),
-            'agent': self.agent_name
+            'source': str(filepath.name),
+            'agent': self.agent_name,
+            'file_index': file_idx
         }
         
         # Extract section type and number
@@ -367,12 +393,22 @@ class EnhancedDocumentAgent:
             Tool(
                 name="SearchUserCapabilities",
                 func=self._search_user_capabilities,
-                description="Search for specific capabilities of a user group"
+                description="Search for capabilities of a user group. Use: 'user_group' or 'user_group capability'"
+            ),
+            Tool(
+                name="SearchUserGroup",
+                func=self._search_user_group,
+                description="Search for information about a specific user group (customers, staff, admins)"
+            ),
+            Tool(
+                name="CompareSystems",
+                func=self._compare_systems,
+                description="Compare systems and their features from different documents"
             )
         ]
 
     def _search_documents(self, query: str, k: int = 2) -> str:
-        """Search for relevant information in documents"""
+        """Search for relevant information across all documents"""
         try:
             # Perform similarity search
             results = self.vectorstore.similarity_search_with_score(query, k=k)
@@ -380,10 +416,11 @@ class EnhancedDocumentAgent:
             if not results:
                 return "No relevant documents found."
             
-            # Format results
+            # Format results with source information
             formatted_results = []
             for i, (doc, score) in enumerate(results, 1):
-                result_info = f"Result {i}:\n"
+                source_file = doc.metadata.get('source', 'Unknown')
+                result_info = f"Result {i} (Source: {source_file}):\n"
                 result_info += f"Content: {doc.page_content}\n"
                 result_info += "-" * 40 + "\n"
                 formatted_results.append(result_info)
@@ -430,20 +467,28 @@ class EnhancedDocumentAgent:
         except Exception as e:
             return f"Error getting context info: {str(e)}"
 
-    def _search_user_capabilities(self, user_group: str, capability: str) -> str:
+    def _search_user_capabilities(self, user_group: str, capability: str = None) -> str:
         """Search for specific capabilities of a user group"""
         try:
             # Create focused search query
-            search_query = f"{user_group} {capability}"
+            if capability:
+                search_query = f"{user_group} {capability}"
+            else:
+                search_query = f"{user_group} capabilities permissions"
+            
             results = self.vectorstore.similarity_search_with_score(search_query, k=2)
             
             if not results:
-                return f"No information found about {user_group} and {capability}."
+                if capability:
+                    return f"No information found about {user_group} and {capability}."
+                else:
+                    return f"No information found about {user_group} capabilities."
             
             # Format results
             formatted_results = []
             for i, (doc, score) in enumerate(results, 1):
-                result_info = f"Result {i}:\n"
+                source_file = doc.metadata.get('source', 'Unknown')
+                result_info = f"Result {i} (Source: {source_file}):\n"
                 result_info += f"Content: {doc.page_content}\n"
                 result_info += "-" * 40 + "\n"
                 formatted_results.append(result_info)
@@ -452,6 +497,15 @@ class EnhancedDocumentAgent:
             
         except Exception as e:
             return f"Error searching for user capabilities: {str(e)}"
+
+    def _search_user_group(self, query: str) -> str:
+        """Search for user group information (wrapper for single parameter calls)"""
+        try:
+            # Extract user group from query
+            user_group = query.strip()
+            return self._search_user_capabilities(user_group)
+        except Exception as e:
+            return f"Error searching for user group: {str(e)}"
 
     def _compare_entities(self, comparison_query: str) -> str:
         """Compare different entities mentioned in the conversation"""
@@ -474,15 +528,59 @@ class EnhancedDocumentAgent:
         except Exception as e:
             return f"Error comparing entities: {str(e)}"
 
+    def _compare_systems(self, comparison_query: str) -> str:
+        """Compare systems and their features"""
+        try:
+            # Search for system features
+            system_features = {}
+            
+            # Search for features in each document
+            for doc in self.documents:
+                source = doc.metadata.get('source', 'Unknown')
+                content = doc.page_content.lower()
+                
+                # Check if this document contains feature information
+                if any(keyword in content for keyword in ['feature', 'functionality', 'capability', 'can', 'able']):
+                    if source not in system_features:
+                        system_features[source] = []
+                    system_features[source].append(doc.page_content)
+            
+            if not system_features:
+                return "No system features found in the documents."
+            
+            # Format comparison
+            comparison_result = "System Comparison:\n" + "="*50 + "\n"
+            
+            for system_name, features in system_features.items():
+                comparison_result += f"\n{system_name}:\n"
+                comparison_result += "-" * 30 + "\n"
+                for i, feature in enumerate(features[:3], 1):  # Limit to 3 features per system
+                    comparison_result += f"{i}. {feature[:200]}...\n"
+                comparison_result += "\n"
+            
+            return comparison_result
+            
+        except Exception as e:
+            return f"Error comparing systems: {str(e)}"
+
     def _create_agent(self):
-        """Create simplified agent with context memory support"""
-        system_message = SystemMessage(content=f"""You are {self.agent_name}, a document analysis assistant with context memory.
+        """Create simplified agent with multi-document context memory support"""
+        system_message = SystemMessage(content=f"""You are {self.agent_name}, a document analysis assistant with context memory and multi-document comparison capabilities.
 
 You have access to essential tools:
-1. SearchDocuments - Search for relevant information in documents
+1. SearchDocuments - Search for relevant information across all documents
 2. GetContextInfo - Get information about previously mentioned entities
 3. CompareEntities - Compare different entities or concepts
-4. SearchUserCapabilities - Search for specific capabilities of a user group
+4. SearchUserCapabilities - Search for capabilities of a user group. Use: 'user_group' or 'user_group capability'
+5. SearchUserGroup - Search for information about a specific user group (customers, staff, admins)
+6. CompareSystems - Compare systems and their features from different documents
+
+MULTI-DOCUMENT CAPABILITIES:
+- You can analyze and compare information from multiple documents
+- Each document chunk includes source file information in metadata
+- You can identify which document contains specific information
+- You can compare similar concepts across different documents
+- When comparing systems, always identify which system each feature belongs to
 
 CONTEXT MEMORY CAPABILITIES:
 - Always consider the conversation history when answering questions
@@ -495,18 +593,29 @@ CRITICAL CONTEXT RULES:
 - Do NOT include other user groups (admins, staff) unless they were specifically mentioned in the previous context
 - Focus your search and answer ONLY on the user groups that were actually mentioned earlier
 
+COMPARISON GUIDELINES:
+- When asked to compare systems, search for features in each system separately
+- Always specify which system each feature belongs to
+- Provide structured comparisons: "System A has: [features], System B has: [features]"
+- Highlight differences and similarities clearly
+- Use source information to identify which document contains which features
+
 ANSWER GUIDELINES:
 - Provide focused, specific answers that directly address the question
 - If asked about a specific user group, focus only on that group
 - Be precise about permissions and capabilities for each user role
 - When asked about "who can do X", only mention users who actually have that specific capability
 - When asked "among the users mentioned earlier", restrict your answer to only those users
+- When comparing information between documents, clearly indicate the source of each piece of information
+- For system comparisons, provide detailed, structured responses
 
 Use the most appropriate tool for each query:
-- Use SearchDocuments for general queries
+- Use SearchDocuments for general queries across all documents
 - Use GetContextInfo when asked about previously mentioned entities
 - Use CompareEntities when asked to compare different things
 - Use SearchUserCapabilities when asked about specific user group capabilities
+- Use SearchUserGroup when asked about a specific user group (customers, staff, admins)
+- Use CompareSystems when asked to compare systems and their features
 
 Provide clear, accurate responses with relevant context from the documents and conversation history.""")
         
@@ -541,23 +650,43 @@ Provide clear, accurate responses with relevant context from the documents and c
             return {"error": f"Could not load metadata: {str(e)}"}
 
 def main():
-    """Example usage with the two specific questions"""
+    """Example usage with unified multi-document index"""
     try:
-        # Get the correct file path
+        # Get the correct file paths
         current_dir = Path(__file__).parent.parent
-        data_file = current_dir / "data" / "restaurant_ordering_system.txt"
+        restaurant_file = current_dir / "data" / "report.txt"
+        task_tracker_file = current_dir / "data" / "system_design_daily_dev_team_task_tracker.txt"
         
-        if not data_file.exists():
-            print(f"❌ Data file not found: {data_file}")
-            print("Please ensure the data file exists or update the path.")
+        # Check if files exist
+        files_to_use = []
+        if restaurant_file.exists():
+            files_to_use.append(str(restaurant_file))
+            print(f"✅ Found: {restaurant_file.name}")
+        if task_tracker_file.exists():
+            files_to_use.append(str(task_tracker_file))
+            print(f"✅ Found: {task_tracker_file.name}")
+        
+        if not files_to_use:
+            print("❌ No data files found")
+            print("Please ensure at least one data file exists.")
             return
         
-        # Create simplified agent
-        agent = EnhancedDocumentAgent("RestaurantSystemAnalyzer", str(data_file))
+        print(f"✅ Using {len(files_to_use)} document(s): {[Path(f).name for f in files_to_use]}")
         
-        # Test the two specific questions
+        # Create unified agent with single index
+        agent = EnhancedDocumentAgent("UnifiedSystemAnalyzer", files_to_use)
+        
+        # Get metadata info to verify unified index
         print("\n" + "="*60)
-        print("🧠 Testing Context Memory with Two Questions")
+        print("📊 Unified Index Information")
+        print("="*60)
+        metadata_info = agent.get_metadata_info()
+        print(f"Total documents: {metadata_info['index_info']['total_documents']}")
+        print(f"Source files: {[Path(f).name for f in metadata_info['index_info']['source_files']]}")
+        
+        # Test the two questions
+        print("\n" + "="*60)
+        print("🧠 Testing Unified Multi-Document Context Memory")
         print("="*60)
         
         # First question - establishes context
@@ -570,7 +699,15 @@ def main():
         answer2 = agent.ask("Among the users that were answered earlier, who can cancel any reservation in the system?")
         print(f"Answer: {answer2}")
         
-        print("\n✅ Test completed!")
+        # Test multi-document comparison with improved prompt
+        if len(files_to_use) > 1:
+            print("\n3. Compare the features between the two systems")
+            print("Expected: Detailed comparison of features from both systems")
+            print("-" * 50)
+            answer3 = agent.ask("Compare the features between the two systems. Please provide a detailed comparison showing what features each system has and how they differ.")
+            print(f"Answer: {answer3}")
+        
+        print("\n✅ Unified multi-document test completed!")
             
     except Exception as e:
         logger.error(f"Error in main: {e}")

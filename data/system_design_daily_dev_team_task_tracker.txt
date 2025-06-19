@@ -1,0 +1,17 @@
+System Overview:
+A lightweight task tracking system for daily developer workflow.
+
+Core Components:
+FastAPI backend, React frontend, PostgreSQL DB, and optional Redis cache.
+
+Features:
+- Add tasks with free-text descriptions.
+- Auto-tagging using keywords or GPT-based classifier.
+- Kanban board view per user/team.
+- Task distribution suggestions based on current workload.
+
+Security:
+OAuth2 authentication with role-based permissions.
+
+Future Enhancements:
+Slack/GitHub integration, sprint velocity analysis.
