@@ -1,15 +1,16 @@
-# Multi-Agent RAG System
+# Simplified RAG System with Vector Storage
 
-A sophisticated document analysis and question-answering system using multiple AI agents with advanced optimization features.
+A streamlined document analysis system using LangChain with FAISS vector storage, automatic metadata extraction, and intelligent system comparison capabilities.
 
 ## 🚀 Features
 
-- **Enhanced Document Processing**: Automatic metadata extraction and intelligent document chunking
-- **Multi-Agent Architecture**: Specialized agents for different document types
-- **Cost Optimization**: Token usage tracking and cost management
-- **Smart Caching**: Automatic index rebuilding only when documents change
+- **Vector Storage**: FAISS-based vector storage with automatic persistence
+- **Metadata Export**: Automatic export of chunk metadata to JSON for analysis
+- **Smart Caching**: Rebuilds vectorstore only when needed
+- **System Comparison**: Compare features and capabilities across multiple systems
+- **Memory Support**: Conversation memory for contextual responses
 - **Environment-Based Configuration**: Secure API key management
-- **Advanced Search**: Multiple search strategies with relevance scoring
+- **Automatic Chunking**: Intelligent document splitting with metadata preservation
 
 ## 📋 Prerequisites
 
@@ -31,11 +32,7 @@ A sophisticated document analysis and question-answering system using multiple A
    ```
 
 3. **Set up environment variables**:
-   ```bash
-   python setup_env.py
-   ```
-   
-   Or manually create a `.env` file:
+   Create a `.env` file in the project root:
    ```env
    OPENAI_API_KEY=your_api_key_here
    OPENAI_MODEL=gpt-4-turbo-preview
@@ -44,210 +41,114 @@ A sophisticated document analysis and question-answering system using multiple A
    DEBUG=False
    ```
 
-## 🧪 Testing
-
-Run the comprehensive test suite:
-
-```bash
-# Test configuration and imports
-python simple_test.py
-
-# Test the full agent system
-python test_agent.py
-
-# Test configuration only
-python test_config.py
-```
-
 ## 📖 Usage
 
 ### Basic Usage
 
 ```python
-from core.agents import EnhancedDocumentAgent
+from core.agents import main
 
-# Create an agent for your document
-agent = EnhancedDocumentAgent("LegalAssistant", "path/to/your/document.txt")
-
-# Ask questions
-answer = agent.ask("What are the main clauses in this document?")
-print(answer)
+# Run the system
+main()
 ```
 
-### Advanced Usage
+### What the System Does
 
-```python
-from core.agents import EnhancedDocumentAgent
-from core.token_tracker import CostOptimizer
+1. **Loads Documents**: Automatically loads all `.txt` files from the `data/` directory
+2. **Creates Chunks**: Splits documents into logical chunks with metadata
+3. **Builds Vectorstore**: Creates FAISS vector storage (saved to `faiss_index/`)
+4. **Exports Metadata**: Saves chunk metadata to `vector_metadata.json`
+5. **Answers Questions**: Uses the vectorstore to answer questions about the systems
 
-# Create agent with custom index path
-agent = EnhancedDocumentAgent(
-    agent_name="ContractAnalyzer",
-    filepath="contracts/lease_agreement.txt",
-    index_path="custom_index_path"
-)
+### Example Questions
 
-# Get document structure
-structure = agent.get_metadata_info()
-print(f"Document has {structure['document_structure']['clauses']} clauses")
+The system can answer questions like:
+- "What can customers do in the restaurant reservation system?"
+- "Compare the use of databases in both systems?"
+- "What are the main differences between admin and staff roles?"
 
-# Ask specific questions
-questions = [
-    "What is the security deposit amount?",
-    "What are the termination conditions?",
-    "Find clause 5"
-]
+### Generated Files
 
-for question in questions:
-    answer = agent.ask(question)
-    print(f"Q: {question}")
-    print(f"A: {answer}\n")
-```
+After running the system, you'll get:
+- `faiss_index/` - FAISS vector storage directory
+- `vector_metadata.json` - Metadata for all document chunks
 
-### Cost Optimization
+### Tools Available
 
-```python
-from core.token_tracker import CostOptimizer
-
-# Initialize cost optimizer
-optimizer = CostOptimizer(
-    model="gpt-4",
-    max_context_tokens=2000,
-    save_history=True
-)
-
-# Track usage
-optimizer.track_usage(
-    session_id="session_1",
-    input_tokens=1500,
-    output_tokens=500,
-    session_name="contract_analysis"
-)
-
-# Get usage report
-optimizer.print_usage_report()
-```
+- **Summarize**: Summarizes long text using LLM
+- **Star**: Adds asterisks around answers for emphasis
 
 ## 🔧 Configuration
 
 ### Environment Variables
 
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `OPENAI_API_KEY` | Your OpenAI API key | - | Yes |
-| `OPENAI_MODEL` | Model to use | `gpt-4-turbo-preview` | No |
-| `TEMPERATURE` | Creativity level (0.0-1.0) | `0.7` | No |
-| `MAX_TOKENS` | Maximum tokens per response | `4000` | No |
-| `DEBUG` | Enable debug mode | `False` | No |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | Your OpenAI API key | Required |
+| `OPENAI_MODEL` | Model to use | `gpt-4-turbo-preview` |
+| `TEMPERATURE` | Creativity level | `0.7` |
+| `MAX_TOKENS` | Max tokens per response | `4000` |
 
-### Optimization Settings
+### Data Directory
 
-- **Model Selection**:
-  - `gpt-3.5-turbo`: Faster, cheaper responses
-  - `gpt-4`: More accurate, detailed responses
-  
-- **Temperature Tuning**:
-  - `0.0-0.3`: Factual, consistent responses
-  - `0.4-0.7`: Balanced creativity and accuracy
-  - `0.8-1.0`: More creative, varied responses
+Place your `.txt` files in the `data/` directory. The system will automatically:
+- Load all `.txt` files
+- Split them into chunks
+- Extract metadata (source file, title, etc.)
+- Build vector embeddings
 
-## 📊 Performance Optimization
+## 🧪 Testing
 
-### 1. **Token Management**
-- Monitor token usage with `CostOptimizer`
-- Use context optimization for long documents
-- Implement token budgeting for cost control
+```bash
+# Run the main system
+python core/agents.py
 
-### 2. **Caching Strategy**
-- Indexes are automatically cached and rebuilt only when needed
-- File checksums prevent unnecessary rebuilds
-- Metadata is preserved for quick access
-
-### 3. **Search Optimization**
-- Multiple search strategies available:
-  - General document search
-  - Clause-specific search
-  - Keyword-based search with metadata
-  - Similarity search
-
-### 4. **Memory Management**
-- Conversation memory for context continuity
-- Automatic memory cleanup
-- Configurable memory limits
-
-## 🔒 Security
-
-- API keys are stored in environment variables
-- `.env` files are excluded from version control
-- No sensitive data is logged
-- Secure token handling
-
-## 📁 Project Structure
-
-```
-multi_agent_rag/
-├── config/                 # Configuration management
-│   ├── __init__.py
-│   └── settings.py        # Environment variable handling
-├── core/                  # Core functionality
-│   ├── agents.py          # Main agent implementation
-│   └── token_tracker.py   # Cost optimization
-├── data/                  # Document storage
-│   ├── pdfs/             # PDF documents
-│   └── qna/              # Q&A datasets
-├── index_*/               # Generated indexes
-├── tests/                 # Test files
-├── utils/                 # Utility functions
-├── setup_env.py           # Environment setup script
-├── test_agent.py          # Agent testing
-├── simple_test.py         # Import testing
-└── CONFIGURATION.md       # Configuration guide
+# Check generated files
+ls faiss_index/
+cat vector_metadata.json
 ```
 
-## 🐛 Troubleshooting
+## 📊 Metadata Analysis
 
-### Common Issues
+The system exports detailed metadata for each chunk:
+- `source`: Source file name
+- `title`: Chunk title/heading
+- Additional metadata as extracted
 
-1. **Import Errors**:
-   ```bash
-   # Make sure you're in the correct directory
-   cd multi_agent_rag
-   python simple_test.py
-   ```
+You can analyze the `vector_metadata.json` file to understand:
+- How documents were chunked
+- What metadata was extracted
+- Document structure and organization
 
-2. **API Key Issues**:
-   ```bash
-   # Check your environment variables
-   python setup_env.py
-   ```
+## 🔄 Rebuilding
 
-3. **File Not Found**:
-   ```bash
-   # Ensure data files exist
-   ls data/
-   ```
+To force rebuild of the vectorstore and metadata:
+1. Delete `faiss_index/` directory
+2. Delete `vector_metadata.json` file
+3. Run the system again
 
-4. **Memory Issues**:
-   - Reduce `max_context_tokens`
-   - Use smaller document chunks
-   - Enable debug mode for detailed logging
+The system will automatically detect missing files and rebuild everything.
 
-## 🤝 Contributing
+## 🚀 Optimization Features
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+- **Smart Caching**: Only rebuilds when files are missing
+- **Efficient Embeddings**: Uses OpenAI's text-embedding-ada-002
+- **Memory Management**: Conversation memory for context
+- **Error Handling**: Graceful handling of missing files and API errors
 
-## 📄 License
+## 📝 Example Output
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+```
+Loaded 8 chunks from 2 files: ['system_design_restaurant_ordering.txt', 'system_design_daily_dev_team_task_tracker.txt']
+Vectorstore and metadata saved.
+Metadata fields: {'source', 'title'}
 
-## 🆘 Support
+Q1: Compare the use of databases in both systems?
 
-For support and questions:
-1. Check the troubleshooting section
-2. Review the configuration guide
-3. Run the test scripts
-4. Create an issue with detailed error information
+[File: system_design_restaurant_ordering.txt, Title: Core Components]
+FastAPI backend, React UI, PostgreSQL database, Redis for real-time updates.
+
+[File: system_design_daily_dev_team_task_tracker.txt, Title: Core Components]  
+FastAPI backend, React frontend, Mysql database, and optional Redis cache.
+
+A1: Both systems use different databases: PostgreSQL vs MySQL...
