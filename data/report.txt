@@ -1,18 +1,23 @@
 System Overview:
-A lightweight task tracking system for daily developer workflow.
+A web-based system to manage real-time table reservations for a restaurant.
 
 Core Components:
-FastAPI backend, React frontend, Mysql database, and optional Redis cache as database.
+FastAPI backend, React UI, PostgreSQL database, Redis  database for real-time updates.
 
 Features:
-- Add tasks with free-text descriptions.
-- Auto-tagging using keywords or GPT-based classifier.
-- Kanban board view per user/team.
-- Task distribution suggestions based on current workload.
+- Customers can create and cancel their own reservations via the website.
+- When logged in as a customer, the UI displays a special vegan meal promotion image.
+- Admins can view, modify, and cancel any reservation via the admin dashboard.
+- Staff can assist with in-person bookings and view the daily schedule.
+
+
+User Roles:
+- Customers: can manage only their reservations.
+- Staff: view reservations and assist users, but cannot cancel.
+- Admins: full access to reservation management and shift scheduling.
 
 Security:
-OAuth2 authentication with role-based permissions.
+OAuth2-based login with role-based access control (RBAC).
 
 Future Enhancements:
-Slack/GitHub integration, sprint velocity analysis.
-
+Rating system, mobile app, and online payment integration.
