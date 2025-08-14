@@ -139,16 +139,7 @@ The system will automatically detect missing files and rebuild everything.
 ## 📝 Example Output
 
 ```
-Loaded 8 chunks from 2 files: ['system_design_restaurant_ordering.txt', 'system_design_daily_dev_team_task_tracker.txt']
-Vectorstore and metadata saved.
-Metadata fields: {'source', 'title'}
 
 Q1: Compare the use of databases in both systems?
-
-[File: system_design_restaurant_ordering.txt, Title: Core Components]
-FastAPI backend, React UI, PostgreSQL database, Redis for real-time updates.
-
-[File: system_design_daily_dev_team_task_tracker.txt, Title: Core Components]  
-FastAPI backend, React frontend, Mysql database, and optional Redis cache.
 
 A1: Both systems use different databases: PostgreSQL vs MySQL...
